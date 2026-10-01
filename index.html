@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Leggi le Note</title>
+  <meta name="description" content="Allenati a leggere le note sul pentagramma suonandole al pianoforte.">
+  <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16171b" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Music&display=block" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Leggi le Note</h1>
+    <label class="level-pick">
+      <span class="sr">Livello</span>
+      <select id="level"></select>
+    </label>
+  </header>
+
+  <main>
+    <section class="card staff-card">
+      <p id="levelDesc" class="level-desc"></p>
+      <svg id="staff" role="img" aria-label="Pentagramma"></svg>
+      <p id="feedback" class="feedback" aria-live="polite">Attiva il microfono e suona la nota</p>
+    </section>
+
+    <section class="heard-row">
+      <div class="heard">
+        <span class="label">Sento</span>
+        <span id="heard" class="heard-note">—</span>
+      </div>
+      <div class="meter" aria-hidden="true"><div id="meterFill"></div></div>
+    </section>
+
+    <section class="actions">
+      <button id="micBtn" class="primary">🎤 Attiva microfono</button>
+      <button id="hintBtn">Suggerimento</button>
+      <button id="skipBtn">Salta</button>
+    </section>
+
+    <section class="stats">
+      <div><b id="sOk">0</b><span>corrette</span></div>
+      <div><b id="sErr">0</b><span>errori</span></div>
+      <div><b id="sStreak">0</b><span>serie</span></div>
+      <div><b id="sBest">0</b><span>record</span></div>
+      <div><b id="sTime">–</b><span>tempo</span></div>
+    </section>
+
+    <section id="keyboardWrap" class="keyboard-wrap" hidden>
+      <div id="keyboard" class="keyboard"></div>
+      <p class="small">Tastiera a schermo: conta solo il nome della nota, non l'ottava.</p>
+    </section>
+
+    <details class="card settings">
+      <summary>Impostazioni</summary>
+      <label class="row">
+        <span>Nomi delle note</span>
+        <select id="optNames">
+          <option value="it">Do Re Mi</option>
+          <option value="en">C D E</option>
+        </select>
+      </label>
+      <label class="row">
+        <span>Ottava esatta</span>
+        <input type="checkbox" id="optOctave" checked>
+      </label>
+      <label class="row">
+        <span>Sensibilità microfono</span>
+        <input type="range" id="optSens" min="1" max="10" value="6">
+      </label>
+      <label class="row">
+        <span>Tastiera a schermo</span>
+        <input type="checkbox" id="optKeyboard">
+      </label>
+      <button id="resetBtn" class="ghost">Azzera statistiche</button>
+    </details>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
