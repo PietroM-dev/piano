@@ -1,6 +1,6 @@
 // Cache per l'uso offline: prima la rete, poi la cache.
-const CACHE = 'leggi-le-note-v1';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'leggi-le-note-v2';
+const FILES = ['./', 'index.html', 'style.css', 'midi.js', 'app.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));

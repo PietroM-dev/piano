@@ -8,12 +8,18 @@ const STEP = [0, 2, 4, 5, 7, 9, 11];
 const SHARP_OK = [0, 1, 3, 4, 5]; // Do♯ Re♯ Fa♯ Sol♯ La♯
 const FLAT_OK = [1, 2, 4, 5, 6];  // Re♭ Mi♭ Sol♭ La♭ Si♭
 const PC_SPELL = [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [3, 0], [3, 1], [4, 0], [4, 1], [5, 0], [5, 1], [6, 0]];
+const PC_SPELL_FLAT = [[0, 0], [1, -1], [1, 0], [2, -1], [2, 0], [3, 0], [4, -1], [4, 0], [5, -1], [5, 0], [6, -1], [6, 0]];
 const BOTTOM_LINE = { treble: 30, bass: 18 }; // Mi4, Sol2
 const MIDDLE_C = 28;
 
 const dia = (letter, oct) => oct * 7 + letter;
 const mod = (n, m) => ((n % m) + m) % m;
 const diaToMidi = d => 12 * (Math.floor(d / 7) + 1) + STEP[mod(d, 7)];
+
+function spellMidi(m, flats) {
+  const [letter, acc] = (flats ? PC_SPELL_FLAT : PC_SPELL)[mod(m, 12)];
+  return { d: dia(letter, Math.floor(m / 12) - 1), letter, acc, midi: m };
+}
 
 const LEVELS = [
   { name: '1 · Primi passi', desc: 'Chiave di violino · da Do centrale a Sol', layout: 'treble', lo: dia(0, 4), hi: dia(4, 4) },
@@ -32,6 +38,7 @@ const store = {
 };
 
 const settings = {
+  mode: store.get('mode', 'exercise'), // 'exercise' | 'song'
   level: store.get('level', 0),
   names: store.get('names', 'it'),
   octave: store.get('octave', true),
@@ -47,6 +54,7 @@ const state = {
   hinted: false,
   locked: false,
   shownAt: 0,
+  gen: 0, // cambia a ogni cambio di modalità, per annullare i timer in sospeso
   ok: 0, err: 0, streak: 0, times: [],
 };
 
@@ -59,6 +67,8 @@ const el = {
   sOk: $('sOk'), sErr: $('sErr'), sStreak: $('sStreak'), sBest: $('sBest'), sTime: $('sTime'),
   optNames: $('optNames'), optOctave: $('optOctave'), optSens: $('optSens'), optKeyboard: $('optKeyboard'),
   kbWrap: $('keyboardWrap'), kb: $('keyboard'), reset: $('resetBtn'),
+  songPanel: $('songPanel'), midiFile: $('midiFile'), songName: $('songName'), songTrack: $('songTrack'),
+  songPart: $('songPart'), songBar: $('songBar'), restart: $('restartBtn'), demo: $('demoBtn'),
 };
 
 function noteLabel(letter, acc) {
@@ -79,9 +89,9 @@ const W = 320;
 const NOTE_X = 190;
 
 function staffLayout() {
-  const L = LEVELS[settings.level];
-  if (L.layout === 'grand') return { h: 210, staves: { treble: 40, bass: 130 } };
-  return { h: 150, staves: { [L.layout]: 55 } };
+  const layout = settings.mode === 'song' ? song.layout : LEVELS[settings.level].layout;
+  if (layout === 'grand') return { h: 210, staves: { treble: 40, bass: 130 } };
+  return { h: 150, staves: { [layout]: 55 } };
 }
 
 function yOf(clef, top, d) {
@@ -132,8 +142,9 @@ function render() {
   s += `<line x1="${x0}" x2="${x0}" y1="${yTop}" y2="${yBot}" stroke="currentColor" stroke-width="1.2"/>`;
   s += `<line x1="${x1}" x2="${x1}" y1="${yTop}" y2="${yBot}" stroke="currentColor" stroke-width="1.2"/>`;
 
+  if (settings.mode === 'song') s += songNotesSvg(staves, h);
   const t = state.target;
-  if (t) {
+  if (t && settings.mode === 'exercise') {
     const top = staves[t.clef];
     if (state.wrong) {
       const g = { ...state.wrong };
@@ -144,6 +155,27 @@ function render() {
   }
   svg.setAttribute('viewBox', `0 0 ${W} ${h}`);
   svg.innerHTML = s;
+}
+
+// Nel brano si vedono più note: quella appena suonata, quella da suonare e le successive.
+const SONG_X0 = 74, SONG_GAP = 42, SONG_VISIBLE = 6;
+function songNotesSvg(staves, h) {
+  let out = '';
+  const start = Math.max(0, Math.min(song.idx, song.notes.length) - 1);
+  const end = Math.min(song.notes.length, start + SONG_VISIBLE);
+  for (let i = start; i < end; i++) {
+    const n = song.notes[i];
+    const x = SONG_X0 + (i - start) * SONG_GAP;
+    const top = staves[n.clef];
+    if (i === song.idx) {
+      out += `<rect x="${x - 19}" y="3" width="38" height="${h - 6}" rx="9" style="fill:var(--accent);opacity:.12"/>`;
+      if (state.wrong) out += noteSvg(n.clef, top, state.wrong, x, 'var(--bad)', 0.5);
+      out += noteSvg(n.clef, top, n, x, state.solved ? 'var(--ok)' : 'var(--accent)');
+    } else {
+      out += noteSvg(n.clef, top, n, x, i < song.idx ? 'var(--ok)' : 'currentColor', i < song.idx ? 0.45 : 1);
+    }
+  }
+  return out;
 }
 
 // ---------- Logica del gioco ----------
@@ -174,7 +206,11 @@ function setFeedback(text, kind = '') {
 }
 
 function nextNote() {
-  state.target = randomNote();
+  showTarget(randomNote());
+}
+
+function showTarget(t) {
+  state.target = t;
   state.wrong = null;
   state.solved = false;
   state.hinted = false;
@@ -184,11 +220,13 @@ function nextNote() {
   setFeedback(audio.running ? 'Suona la nota' : 'Attiva il microfono e suona la nota');
 }
 
+const bestKey = () => (settings.mode === 'song' ? 'song' : settings.level);
+
 function updateStats() {
   el.sOk.textContent = state.ok;
   el.sErr.textContent = state.err;
   el.sStreak.textContent = state.streak;
-  el.sBest.textContent = best[settings.level] || 0;
+  el.sBest.textContent = best[bestKey()] || 0;
   const n = state.times.length;
   el.sTime.textContent = n ? (state.times.reduce((a, b) => a + b, 0) / n / 1000).toFixed(1) + 's' : '–';
 }
@@ -207,8 +245,8 @@ function check(midi, fromKeyboard) {
     if (!state.hinted) {
       state.streak++;
       state.times.push(performance.now() - state.shownAt);
-      if (state.streak > (best[settings.level] || 0)) {
-        best[settings.level] = state.streak;
+      if (state.streak > (best[bestKey()] || 0)) {
+        best[bestKey()] = state.streak;
         store.set('best', best);
       }
     }
@@ -217,7 +255,9 @@ function check(midi, fromKeyboard) {
     navigator.vibrate?.(40);
     render();
     updateStats();
-    setTimeout(nextNote, 750);
+    const gen = state.gen;
+    const song_ = settings.mode === 'song';
+    setTimeout(() => { if (gen === state.gen) song_ ? songNext() : nextNote(); }, song_ ? 300 : 750);
     return 'ok';
   }
 
@@ -230,9 +270,9 @@ function check(midi, fromKeyboard) {
   state.streak = 0;
   let wm = midi;
   if (!strict) while (Math.abs(wm - t.midi) > 6) wm += wm < t.midi ? 12 : -12;
-  const [letter, acc] = PC_SPELL[mod(wm, 12)];
-  state.wrong = { d: dia(letter, Math.floor(wm / 12) - 1), letter, acc };
-  setFeedback(`✗ Hai suonato ${midiLabel(midi)} — riprova`, 'bad');
+  const flats = settings.mode === 'song' && song.parsed?.keySig < 0;
+  state.wrong = spellMidi(wm, flats);
+  setFeedback(`✗ Hai suonato ${noteLabel(state.wrong.letter, state.wrong.acc)} — riprova`, 'bad');
   navigator.vibrate?.([30, 40, 30]);
   render();
   updateStats();
@@ -283,8 +323,9 @@ const SILENCE_FRAMES = 8;
 
 const audio = {
   running: false, ctx: null, stream: null, analyser: null, buf: null, raf: 0, wakeLock: null,
-  cand: null, candCount: 0, stable: null, silent: 0, ignoreMidi: null,
+  cand: null, candCount: 0, stable: null, silent: 0, ignoreMidi: null, hist: [],
 };
+const ONSET_RATIO = 1.6; // salto di volume rispetto a ~65 ms prima che indica un nuovo tasto premuto
 
 function gateThreshold() {
   // sensibilità 1..10 → soglia RMS da 0.05 a ~0.0005
@@ -314,6 +355,17 @@ function tick() {
   rms = Math.sqrt(rms / buf.length);
   const thr = gateThreshold();
   el.meter.style.width = Math.min(100, (rms / (thr * 6)) * 100) + '%';
+
+  // Un nuovo attacco (anche della stessa nota) azzera il riconoscimento: così le note ripetute contano.
+  const hist = audio.hist;
+  if (hist.length === 4 && rms > thr * 1.5 && rms > hist[0] * ONSET_RATIO) {
+    audio.cand = null;
+    audio.candCount = 0;
+    audio.stable = null;
+    audio.ignoreMidi = null;
+  }
+  hist.push(rms);
+  if (hist.length > 4) hist.shift();
 
   if (rms < thr) {
     if (++audio.silent === SILENCE_FRAMES) onSilence();
@@ -401,18 +453,156 @@ el.kb.addEventListener('click', e => {
 LEVELS.forEach((L, i) => el.level.add(new Option(L.name, i)));
 if (!LEVELS[settings.level]) settings.level = 0;
 
-function applyLevel() {
-  el.level.value = settings.level;
-  el.levelDesc.textContent = LEVELS[settings.level].desc;
-  Object.assign(state, { ok: 0, err: 0, streak: 0, times: [], target: null });
+el.level.add(new Option('🎵 Brano da file MIDI', 'song'));
+
+function applyMode() {
+  state.gen++;
+  el.level.value = settings.mode === 'song' ? 'song' : settings.level;
+  el.songPanel.hidden = settings.mode !== 'song';
+  Object.assign(state, { ok: 0, err: 0, streak: 0, times: [], target: null, wrong: null, solved: false });
   updateStats();
-  nextNote();
+  if (settings.mode === 'song') songShow();
+  else {
+    el.levelDesc.textContent = LEVELS[settings.level].desc;
+    nextNote();
+  }
 }
 
 el.level.addEventListener('change', () => {
-  settings.level = Number(el.level.value);
-  store.set('level', settings.level);
-  applyLevel();
+  if (el.level.value === 'song') settings.mode = 'song';
+  else {
+    settings.mode = 'exercise';
+    settings.level = Number(el.level.value);
+    store.set('level', settings.level);
+  }
+  store.set('mode', settings.mode);
+  applyMode();
+});
+
+// ---------- Brano da file MIDI ----------
+const song = { name: '', data: null, parsed: null, track: -1, part: 'high', notes: [], layout: 'treble', idx: 0 };
+
+function buildSong() {
+  // le note fuori dall'estensione che il microfono riconosce bene vengono spostate di ottava
+  const line = extractLine(song.parsed, song.track, song.part).map(m => {
+    while (m < 40) m += 12;
+    while (m > 88) m -= 12;
+    return m;
+  });
+  const lo = line.reduce((a, b) => Math.min(a, b), 127);
+  const hi = line.reduce((a, b) => Math.max(a, b), 0);
+  song.layout = lo >= 57 ? 'treble' : hi <= 64 ? 'bass' : 'grand';
+  const flats = song.parsed.keySig < 0;
+  song.notes = line.map(m => {
+    const n = spellMidi(m, flats);
+    n.clef = song.layout === 'grand' ? (m >= 60 ? 'treble' : 'bass') : song.layout;
+    return n;
+  });
+}
+
+function loadSong(name, data, track = -1, part = 'high', idx = 0) {
+  const parsed = parseMidi(data);
+  Object.assign(song, { name, data, parsed, part, track: track < parsed.tracks.length ? track : -1 });
+  el.songTrack.innerHTML = '';
+  el.songTrack.add(new Option('Tutte le tracce', -1));
+  parsed.tracks.forEach((t, i) => el.songTrack.add(new Option(`${t.name} (${t.notes.length} note)`, i)));
+  el.songTrack.hidden = parsed.tracks.length < 2;
+  el.songTrack.value = song.track;
+  el.songPart.value = song.part;
+  buildSong();
+  song.idx = Math.min(idx, song.notes.length);
+}
+
+function saveSong() {
+  try {
+    const bytes = new Uint8Array(song.data);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    store.set('song', { name: song.name, data: btoa(bin), track: song.track, part: song.part });
+  } catch { /* file troppo grande per il salvataggio: pazienza */ }
+  store.set('songIdx', song.idx);
+}
+
+function songShow() {
+  const n = song.notes.length;
+  el.songName.textContent = song.name || 'Nessun brano caricato';
+  el.songBar.style.width = n ? (song.idx / n) * 100 + '%' : '0';
+  el.levelDesc.textContent = n ? `Nota ${Math.min(song.idx + 1, n)} di ${n}` : 'Carica un file .mid dal telefono';
+  if (!n) {
+    state.target = null;
+    render();
+    setFeedback('Carica un file .mid per iniziare');
+  } else if (song.idx >= n) {
+    state.target = null;
+    render();
+    setFeedback('🎉 Brano completato!', 'ok');
+  } else {
+    showTarget(song.notes[song.idx]);
+  }
+}
+
+function songNext() {
+  song.idx++;
+  store.set('songIdx', song.idx);
+  songShow();
+}
+
+el.midiFile.addEventListener('change', async () => {
+  const file = el.midiFile.files[0];
+  el.midiFile.value = '';
+  if (!file) return;
+  try {
+    loadSong(file.name.replace(/\.midi?$/i, ''), await file.arrayBuffer());
+    saveSong();
+    applyMode();
+  } catch (e) {
+    setFeedback(`Impossibile leggere il file: ${e.message}`, 'bad');
+  }
+});
+
+el.songTrack.addEventListener('change', () => {
+  song.track = Number(el.songTrack.value);
+  buildSong();
+  song.idx = 0;
+  saveSong();
+  applyMode();
+});
+
+el.songPart.addEventListener('change', () => {
+  song.part = el.songPart.value;
+  buildSong();
+  song.idx = 0;
+  saveSong();
+  applyMode();
+});
+
+el.restart.addEventListener('click', () => {
+  song.idx = 0;
+  store.set('songIdx', 0);
+  applyMode();
+});
+
+// Brano di prova: Inno alla gioia, generato come vero file MIDI
+const ODE = [
+  64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 64, 62, 62,
+  64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 62, 60, 60,
+  62, 62, 64, 60, 62, 64, 65, 64, 60, 62, 64, 65, 64, 62, 60, 62, 55,
+  64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 62, 60, 60,
+];
+function makeMidi(notes) {
+  const ev = [];
+  for (const m of notes) ev.push(0x00, 0x90, m, 80, 0x83, 0x60, 0x80, m, 0); // una semiminima ciascuna
+  ev.push(0x00, 0xff, 0x2f, 0x00);
+  const n = ev.length;
+  return new Uint8Array([
+    0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0,
+    0x4d, 0x54, 0x72, 0x6b, (n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255, ...ev,
+  ]).buffer;
+}
+el.demo.addEventListener('click', () => {
+  loadSong('Inno alla gioia', makeMidi(ODE));
+  saveSong();
+  applyMode();
 });
 
 el.mic.addEventListener('click', () => (audio.running ? stopMic() : startMic()));
@@ -426,11 +616,12 @@ el.hint.addEventListener('click', () => {
 });
 
 el.skip.addEventListener('click', () => {
-  if (state.locked) return;
+  if (state.locked || !state.target) return;
   state.streak = 0;
   updateStats();
   const t = state.target;
-  nextNote();
+  if (settings.mode === 'song') songNext();
+  else nextNote();
   if (t) setFeedback(`Era un ${targetLabel(t)}`, 'info');
 });
 
@@ -451,11 +642,20 @@ el.optKeyboard.addEventListener('change', () => {
 el.reset.addEventListener('click', () => {
   for (const k of Object.keys(best)) delete best[k];
   store.set('best', best);
-  applyLevel();
+  applyMode();
 });
 
+const savedSong = store.get('song', null);
+if (savedSong) {
+  try {
+    const bin = atob(savedSong.data);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    loadSong(savedSong.name, bytes.buffer, savedSong.track, savedSong.part, store.get('songIdx', 0));
+  } catch { store.set('song', null); }
+}
+
 buildKeyboard();
-applyLevel();
+applyMode();
 document.fonts?.ready.then(render);
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {

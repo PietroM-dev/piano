@@ -25,6 +25,28 @@
   </header>
 
   <main>
+    <section id="songPanel" class="card song-panel" hidden>
+      <div class="song-head">
+        <label class="file-btn">
+          📂 Carica .mid
+          <input type="file" id="midiFile" accept=".mid,.midi,audio/midi,audio/x-midi,audio/mid">
+        </label>
+        <span id="songName" class="song-name">Nessun brano caricato</span>
+      </div>
+      <div class="song-opts">
+        <select id="songTrack" aria-label="Traccia"></select>
+        <select id="songPart" aria-label="Linea da suonare">
+          <option value="high">Melodia (nota più acuta)</option>
+          <option value="low">Basso (nota più grave)</option>
+        </select>
+      </div>
+      <div class="progress"><div id="songBar"></div></div>
+      <div class="song-actions">
+        <button id="restartBtn">↺ Ricomincia</button>
+        <button id="demoBtn">Prova: Inno alla gioia</button>
+      </div>
+    </section>
+
     <section class="card staff-card">
       <p id="levelDesc" class="level-desc"></p>
       <svg id="staff" role="img" aria-label="Pentagramma"></svg>
@@ -83,6 +105,7 @@
     </details>
   </main>
 
+  <script src="midi.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
